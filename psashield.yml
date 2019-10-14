@@ -1,0 +1,85 @@
+#!/bin/bash
+#
+# Title:      PSAutomate
+# Based On:   PGBlitz (Reference Title File)
+# Original Author(s):  Admin9705 - Deiteq
+# PSAutomate Auther: fattylewis
+# URL:        https://psautomate.io - http://github.psautomate.io
+# GNU:        General Public License v3.0
+################################################################################
+---
+- hosts: localhost
+  gather_facts: false
+  tasks:
+    # FACTS #######################################################################
+
+    - name: 'Set Known Facts'
+      set_fact:
+        int1: '4181'
+        ext1: '4181'
+        image: 'thomseddon/traefik-forward-auth'
+
+    # CORE (MANDATORY) ############################################################
+    - name: CronJob Role
+      include_tasks: '/psa/apps/_core.yml'
+
+    - name: Register Auth Path
+      shell: 'cat /psa/var/shield.clientid'
+      register: clientid
+
+    - name: Register Client Secret
+      shell: 'cat /psa/var/shield.clientsecret'
+      register: clientsecret
+
+    - name: Register Secret
+      shell: 'openssl rand -hex 16'
+      register: secret
+
+    - name: Register WhiteListed E-Mails
+      shell: 'cat /psa/var/psashield.compiled'
+      register: whitelisted
+
+    # LABELS ######################################################################
+
+    - name: 'Setting PSA Labels'
+      set_fact:
+        psa_labels:
+          traefik.enable: 'true'
+          traefik.port: '{{int1}}'
+          traefik.backend: 'oauth'
+          traefik.frontend.rule: 'Host:oauth.{{domain}}'
+          traefik.frontend.auth.forward.address: 'http://oauth:4181'
+
+    - name: 'Setting PSA Volumes'
+      set_fact:
+        psa_volumes:
+          - '/etc/localtime:/etc/localtime:ro'
+
+    - name: 'Setting PSA ENV'
+      set_fact:
+        psa_env:
+          PUID: '1000'
+          PGID: '1000'
+          CLIENT_ID: '{{clientid.stdout}}'
+          CLIENT_SECRET: '{{clientsecret.stdout}}'
+          SECRET: '{{secret.stdout}}'
+          COOKIE_DOMAIN: '{{domain}}'
+          INSECURE_COOKIE: 'True'
+          LIFETIME: '2592000'
+          AUTH_HOST: 'oauth.{{domain}}'
+          WHITELIST: '{{whitelisted.stdout}}'
+    # MAIN DEPLOYMENT #############################################################
+
+    - name: 'Deploying Container - oauth'
+      docker_container:
+        name: 'oauth'
+        image: '{{image}}'
+        pull: 'yes'
+        env: '{{psa_env}}'
+        restart_policy: unless-stopped
+        networks:
+          - name: psautomate
+            aliases:
+              - 'psautomate'
+        state: started
+        labels: '{{psa_labels}}'
